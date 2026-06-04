@@ -85,7 +85,6 @@ export type BattleAction =
     }
   | {
       type: 'ENEMY_TAKE_TURN'
-      abilityId: string
       randoms: ActionRandoms
     }
   | {

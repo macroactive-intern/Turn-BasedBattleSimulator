@@ -1,289 +1,339 @@
 import type {
+  Ability,
+  ActionRandoms,
   BattleAction,
   BattleLogEntry,
   BattleState,
   Combatant,
+  CombatantSide,
+  StatusEffectType,
 } from '@/types/battle'
-import {
-  calculateHeal,
-  calculateMagicDamage,
-  calculatePhysicalDamage,
-  clampHp,
-  isDefeated,
-} from './damage'
-import { applyStatus, hasStatus, tickStatusEffects } from './statusEffects'
-import { getAbility } from './abilities'
+import { calculateDamage } from './damage'
+import { applyEffect, tickEffects } from './statusEffects'
+import { getDefaultPlayerCombatant } from './abilities'
 
-function uid(): string {
-  return crypto.randomUUID()
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const CRIT_CHANCE = 0.15
+const CRIT_MULTIPLIER = 1.5
+const VARIANCE_MIN = 0.85
+const VARIANCE_RANGE = 0.30
+
+// Resolved when an ability applies a status effect, since Ability only carries
+// the effect type — not its duration or tick value.
+const STATUS_DEFAULTS: Record<StatusEffectType, { value: number; turnsRemaining: number }> = {
+  poison: { value: 8,  turnsRemaining: 3 },
+  burn:   { value: 10, turnsRemaining: 3 },
+  stun:   { value: 0,  turnsRemaining: 1 },
+  regen:  { value: 15, turnsRemaining: 4 },
+  shield: { value: 12, turnsRemaining: 2 },
 }
 
-function buildTurnQueue(combatants: Combatant[]): string[] {
-  return combatants
-    .filter((c) => !isDefeated(c))
-    .sort((a, b) => b.speed - a.speed)
-    .map((c) => c.id)
+// ─── Pure helpers ─────────────────────────────────────────────────────────────
+
+function logEntry(state: BattleState, message: string): BattleLogEntry {
+  return { id: `${state.turnNumber}-${state.log.length}`, message, turnNumber: state.turnNumber }
 }
 
-function addLog(
-  state: BattleState,
-  message: string,
-  actorId: string,
-  actorName: string,
-  type: BattleLogEntry['type'] = 'action'
-): BattleState {
-  const entry: BattleLogEntry = { id: uid(), turn: state.turnNumber, actorId, actorName, message, type }
-  return { ...state, log: [...state.log, entry] }
+function addLog(state: BattleState, message: string): BattleState {
+  return { ...state, log: [...state.log, logEntry(state, message)] }
 }
 
-function updateCombatant(state: BattleState, updated: Combatant): BattleState {
+function firstTurnBySide(player: Combatant, enemy: Combatant): CombatantSide {
+  return player.speed >= enemy.speed ? 'player' : 'enemy'
+}
+
+// Generates the next `count` upcoming turns via simple alternation.
+// Accepts both combatants so speed-weighted extra turns can be wired in later.
+function buildTurnQueue(
+  current: CombatantSide,
+  _player: Combatant,
+  _enemy: Combatant,
+  count = 3
+): CombatantSide[] {
+  const queue: CombatantSide[] = []
+  let side = current
+  for (let i = 0; i < count; i++) {
+    side = side === 'player' ? 'enemy' : 'player'
+    queue.push(side)
+  }
+  return queue
+}
+
+// Decrements all cooldowns for a combatant, pruning entries that reach 0.
+function decrementCooldowns(c: Combatant): Combatant {
+  const next: Record<string, number> = {}
+  for (const [id, turns] of Object.entries(c.abilityCooldowns)) {
+    const remaining = Math.max(0, turns - 1)
+    if (remaining > 0) next[id] = remaining
+  }
+  return { ...c, abilityCooldowns: next }
+}
+
+function onCooldown(c: Combatant, abilityId: string): boolean {
+  return (c.abilityCooldowns[abilityId] ?? 0) > 0
+}
+
+function endBattle(state: BattleState, winner: CombatantSide, message: string): BattleState {
+  return { ...addLog(state, message), phase: 'ended', winner }
+}
+
+// Shared turn-advance logic: decrements acting-side cooldowns, flips currentTurn,
+// rebuilds the 3-turn queue, increments turnNumber.
+function doAdvanceTurn(state: BattleState): BattleState {
+  const acting = state.currentTurn
+  const player  = acting === 'player' ? decrementCooldowns(state.player) : state.player
+  const enemy   = acting === 'enemy'  ? decrementCooldowns(state.enemy)  : state.enemy
+  const next: CombatantSide = acting === 'player' ? 'enemy' : 'player'
   return {
     ...state,
-    combatants: state.combatants.map((c) => (c.id === updated.id ? updated : c)),
+    player,
+    enemy,
+    currentTurn: next,
+    turnQueue:   buildTurnQueue(next, player, enemy),
+    turnNumber:  state.turnNumber + 1,
   }
 }
 
-function checkOutcome(combatants: Combatant[]): 'victory' | 'defeat' | null {
-  if (combatants.filter((c) => !c.isPlayer).every(isDefeated)) return 'victory'
-  if (combatants.filter((c) => c.isPlayer).every(isDefeated)) return 'defeat'
-  return null
+// Applies damage variance and crit from the caller-supplied randoms.
+// Returns the updated defender and log-friendly numbers.
+function resolveDamage(
+  attacker: Combatant,
+  defender: Combatant,
+  ability: Ability,
+  randoms: ActionRandoms
+): { updatedDefender: Combatant; finalDamage: number; isCrit: boolean } {
+  const base = calculateDamage(attacker, defender, ability)
+  if (base === 0) return { updatedDefender: defender, finalDamage: 0, isCrit: false }
+
+  const variance    = VARIANCE_MIN + randoms.damageRoll * VARIANCE_RANGE
+  const isCrit      = randoms.critRoll < CRIT_CHANCE
+  const finalDamage = Math.max(1, Math.round(base * variance * (isCrit ? CRIT_MULTIPLIER : 1)))
+  return {
+    updatedDefender: { ...defender, hp: Math.max(0, defender.hp - finalDamage) },
+    finalDamage,
+    isCrit,
+  }
 }
 
-function applyBasicAttack(
-  state: BattleState,
-  actorId: string,
-  targetId: string
-): BattleState {
-  const actor = state.combatants.find((c) => c.id === actorId)
-  const target = state.combatants.find((c) => c.id === targetId)
-  if (!actor || !target || isDefeated(actor) || isDefeated(target)) return state
-
-  if (hasStatus(actor, 'stun')) {
-    return addLog(state, `${actor.name} is stunned and cannot act!`, actorId, actor.name, 'effect')
+// Applies the status effect carried by an ability, using the STATUS_DEFAULTS table.
+// Rule: damage > 0  → offensive → apply to the defender.
+//       damage === 0 → self-buff → apply to the caster.
+function applyAbilityEffect(
+  effectType: StatusEffectType,
+  caster: Combatant,
+  defender: Combatant,
+  ability: Ability
+): { caster: Combatant; defender: Combatant } {
+  const se = { type: effectType, ...STATUS_DEFAULTS[effectType] }
+  if (ability.damage > 0) {
+    return { caster, defender: applyEffect(defender, se) }
   }
-
-  const dmg = calculatePhysicalDamage(actor, target)
-  const updatedTarget = { ...target, hp: clampHp(target.hp - dmg, target.maxHp) }
-  let next = updateCombatant(state, updatedTarget)
-  next = addLog(next, `${actor.name} attacks ${target.name} for ${dmg} damage!`, actorId, actor.name)
-
-  if (isDefeated(updatedTarget)) {
-    next = addLog(next, `${updatedTarget.name} is defeated!`, 'system', 'System', 'system')
-  }
-  return next
+  return { caster: applyEffect(caster, se), defender }
 }
 
-function applyAbility(
-  state: BattleState,
-  actorId: string,
-  targetId: string,
-  abilityId: string
-): BattleState {
-  const actor = state.combatants.find((c) => c.id === actorId)
-  const ability = getAbility(abilityId)
-  if (!actor || !ability || isDefeated(actor)) return state
+// ─── Initial state ────────────────────────────────────────────────────────────
 
-  if (hasStatus(actor, 'silence') && ability.mpCost > 0) {
-    return addLog(state, `${actor.name} is silenced and cannot use abilities!`, actorId, actor.name, 'effect')
-  }
-  if (actor.mp < ability.mpCost) {
-    return addLog(state, `${actor.name} doesn't have enough MP for ${ability.name}!`, actorId, actor.name, 'system')
-  }
-
-  // For all-enemies, iterate each enemy; otherwise use targetId
-  const targets: string[] =
-    ability.targetType === 'all-enemies'
-      ? state.combatants.filter((c) => !c.isPlayer && !isDefeated(c)).map((c) => c.id)
-      : ability.targetType === 'all-allies'
-      ? state.combatants.filter((c) => c.isPlayer && !isDefeated(c)).map((c) => c.id)
-      : [targetId]
-
-  let actorUpdated = { ...actor, mp: actor.mp - ability.mpCost }
-  let next = state
-
-  for (const tid of targets) {
-    const target = next.combatants.find((c) => c.id === tid)
-    if (!target) continue
-    let targetUpdated = { ...target }
-
-    for (const effect of ability.effects) {
-      switch (effect.type) {
-        case 'damage': {
-          const dmg =
-            effect.formula === 'physical'
-              ? calculatePhysicalDamage(actorUpdated, targetUpdated, effect.baseValue ?? 1)
-              : calculateMagicDamage(effect.baseValue ?? 30, targetUpdated)
-          targetUpdated = { ...targetUpdated, hp: clampHp(targetUpdated.hp - dmg, targetUpdated.maxHp) }
-          next = addLog(
-            next,
-            `${actor.name} uses ${ability.name} on ${target.name} for ${dmg} damage!`,
-            actorId,
-            actor.name
-          )
-          break
-        }
-        case 'heal': {
-          const amt = calculateHeal(effect.baseValue ?? 30)
-          targetUpdated = { ...targetUpdated, hp: clampHp(targetUpdated.hp + amt, targetUpdated.maxHp) }
-          next = addLog(
-            next,
-            `${actor.name} uses ${ability.name} on ${target.name}, restoring ${amt} HP!`,
-            actorId,
-            actor.name
-          )
-          break
-        }
-        case 'status': {
-          if (effect.statusEffect) {
-            const se = {
-              id: effect.statusEffect,
-              name: effect.statusEffect,
-              duration: effect.statusDuration ?? 2,
-              magnitude: effect.statusMagnitude ?? 1,
-            } as const
-            targetUpdated = applyStatus(targetUpdated, se)
-            next = addLog(
-              next,
-              `${target.name} is afflicted with ${effect.statusEffect}!`,
-              actorId,
-              actor.name,
-              'effect'
-            )
-          }
-          break
-        }
-        case 'mp-restore': {
-          const amt = effect.baseValue ?? 20
-          targetUpdated = { ...targetUpdated, mp: clampHp(targetUpdated.mp + amt, targetUpdated.maxMp) }
-          if (amt < 0) {
-            actorUpdated = { ...actorUpdated, mp: clampHp(actorUpdated.mp + Math.abs(amt), actorUpdated.maxMp) }
-          }
-          break
-        }
-      }
-    }
-
-    next = updateCombatant(next, targetUpdated)
-    if (isDefeated(targetUpdated)) {
-      next = addLog(next, `${targetUpdated.name} is defeated!`, 'system', 'System', 'system')
-    }
-  }
-
-  next = updateCombatant(next, actorUpdated)
-  return next
+const STUB_COMBATANT: Combatant = {
+  name: '', hp: 1, maxHp: 1, mp: 0, maxMp: 0,
+  attack: 0, defense: 0, speed: 0,
+  abilities: [], statusEffects: [], abilityCooldowns: {},
 }
 
 export const initialBattleState: BattleState = {
-  phase: 'idle',
-  combatants: [],
-  turnQueue: [],
-  currentTurnIndex: 0,
-  turnNumber: 0,
-  log: [],
-  replay: null,
-  replayStep: 0,
-  startTime: null,
+  phase:        'setup',
+  player:       getDefaultPlayerCombatant(),
+  enemy:        STUB_COMBATANT,
+  currentTurn:  'player',
+  turnQueue:    [],
+  turnNumber:   0,
+  log:          [],
+  rngSeed:      0,
 }
+
+// ─── Reducer ──────────────────────────────────────────────────────────────────
 
 export function battleReducer(state: BattleState, action: BattleAction): BattleState {
   switch (action.type) {
+
+    // ── START_BATTLE ──────────────────────────────────────────────────────────
     case 'START_BATTLE': {
-      const queue = buildTurnQueue(action.combatants)
-      const first = action.combatants.find((c) => c.id === queue[0])
-      const phase = first?.isPlayer ? 'player-turn' : 'enemy-turn'
+      const { player, enemy, firstTurn, rngSeed } = action
+      const currentTurn = firstTurn ?? firstTurnBySide(player, enemy)
+      const turnQueue   = buildTurnQueue(currentTurn, player, enemy)
+      const first       = currentTurn === 'player' ? player.name : enemy.name
       let next: BattleState = {
         ...initialBattleState,
-        phase,
-        combatants: action.combatants,
-        turnQueue: queue,
-        currentTurnIndex: 0,
+        phase: 'active',
+        player, enemy,
+        currentTurn, turnQueue,
         turnNumber: 1,
-        startTime: Date.now(),
+        rngSeed,
+        log: [],
       }
-      next = addLog(next, 'Battle begins!', 'system', 'System', 'system')
-      next = addLog(next, `${first?.name ?? 'Unknown'}'s turn.`, 'system', 'System', 'system')
-      return next
+      return addLog(next, `Battle begins! ${first} acts first.`)
     }
 
-    case 'BASIC_ATTACK': {
-      let next = applyBasicAttack(state, action.actorId, action.targetId)
-      const outcome = checkOutcome(next.combatants)
-      if (outcome) {
-        next = addLog(next, outcome === 'victory' ? 'Victory!' : 'Defeat...', 'system', 'System', 'system')
-        return { ...next, phase: outcome }
-      }
-      return { ...next, phase: 'animating' }
-    }
-
+    // ── USE_ABILITY ───────────────────────────────────────────────────────────
     case 'USE_ABILITY': {
-      let next = applyAbility(state, action.actorId, action.targetId, action.abilityId)
-      const outcome = checkOutcome(next.combatants)
-      if (outcome) {
-        next = addLog(next, outcome === 'victory' ? 'Victory!' : 'Defeat...', 'system', 'System', 'system')
-        return { ...next, phase: outcome }
-      }
-      return { ...next, phase: 'animating' }
-    }
+      if (state.phase !== 'active' || state.currentTurn !== 'player') return state
 
-    case 'NEXT_TURN': {
-      const alive = new Set(state.combatants.filter((c) => !isDefeated(c)).map((c) => c.id))
-      const validQueue = state.turnQueue.filter((id) => alive.has(id))
-
-      let nextIndex = (state.currentTurnIndex + 1) % Math.max(validQueue.length, 1)
-      const isNewRound = nextIndex === 0
-
-      let next: BattleState = { ...state, turnQueue: validQueue, currentTurnIndex: nextIndex }
-
-      if (isNewRound) {
-        next = { ...next, turnNumber: next.turnNumber + 1 }
-        for (const c of next.combatants.filter((c) => !isDefeated(c))) {
-          const { updated, logEntries } = tickStatusEffects(c, next.turnNumber)
-          next = updateCombatant(next, updated)
-          for (const entry of logEntries) {
-            next = { ...next, log: [...next.log, { ...entry, id: uid() }] }
-          }
-        }
-      }
-
-      const outcome = checkOutcome(next.combatants)
-      if (outcome) {
-        next = addLog(next, outcome === 'victory' ? 'Victory!' : 'Defeat...', 'system', 'System', 'system')
-        return { ...next, phase: outcome }
-      }
-
-      const nextActorId = validQueue[nextIndex]
-      const nextActor = next.combatants.find((c) => c.id === nextActorId)
-      const phase = nextActor?.isPlayer ? 'player-turn' : 'enemy-turn'
-      next = addLog(next, `${nextActor?.name ?? 'Unknown'}'s turn.`, 'system', 'System', 'system')
-      return { ...next, phase }
-    }
-
-    case 'LOAD_REPLAY': {
-      return {
-        ...initialBattleState,
-        phase: 'replay',
-        combatants: action.replay.initialState.combatants,
-        turnQueue: buildTurnQueue(action.replay.initialState.combatants),
-        replay: action.replay,
-        replayStep: 0,
-        turnNumber: 1,
-      }
-    }
-
-    case 'REPLAY_STEP': {
-      if (!state.replay || state.replayStep >= state.replay.actions.length) return state
-      const ra = state.replay.actions[state.replayStep]
+      const { abilityId, randoms } = action
+      let { player, enemy } = state
       let next = state
-      if (ra.action.type === 'BASIC_ATTACK') {
-        next = applyBasicAttack(state, ra.action.actorId, ra.action.targetId)
-      } else if (ra.action.type === 'USE_ABILITY') {
-        next = applyAbility(state, ra.action.actorId, ra.action.targetId, ra.action.abilityId)
+
+      // 1. Tick start-of-turn effects on player
+      const { combatant: ticked, logMessages, skippedTurn } = tickEffects(player)
+      player = ticked
+      next = { ...next, player }
+      for (const msg of logMessages) next = addLog(next, msg)
+
+      // 2. Death from DoT
+      if (player.hp <= 0) {
+        return endBattle(next, 'enemy', `${player.name} was overcome by their wounds!`)
       }
-      return { ...next, phase: 'replay', replayStep: state.replayStep + 1 }
+
+      // 3. Stunned — skip; turn still advances
+      if (skippedTurn) return doAdvanceTurn(next)
+
+      // 4. Validate ability
+      const ability = player.abilities.find((a) => a.id === abilityId)
+      if (!ability)                          return state
+      if (player.mp < ability.mpCost)        return state
+      if (onCooldown(player, abilityId))     return state
+
+      // 5. Spend MP + set cooldown
+      player = {
+        ...player,
+        mp: player.mp - ability.mpCost,
+        abilityCooldowns: ability.cooldown > 0
+          ? { ...player.abilityCooldowns, [abilityId]: ability.cooldown }
+          : player.abilityCooldowns,
+      }
+
+      // 6. Resolve damage (if any)
+      if (ability.damage > 0) {
+        const { updatedDefender, finalDamage, isCrit } = resolveDamage(player, enemy, ability, randoms)
+        enemy = updatedDefender
+        const crit = isCrit ? ' Critical hit!' : ''
+        next = addLog({ ...next, player, enemy },
+          `${player.name} uses ${ability.name} for ${finalDamage} damage!${crit}`)
+      } else {
+        next = addLog({ ...next, player }, `${player.name} uses ${ability.name}.`)
+      }
+
+      // 7. Apply status effect
+      if (ability.effect) {
+        const applied = applyAbilityEffect(ability.effect, player, enemy, ability)
+        player = applied.caster
+        enemy  = applied.defender
+        const target = ability.damage > 0 ? enemy.name : player.name
+        next = addLog({ ...next, player, enemy }, `${target} is affected by ${ability.effect}!`)
+      }
+
+      next = { ...next, player, enemy }
+
+      // 8. Victory check
+      if (enemy.hp <= 0) return endBattle(next, 'player', `${enemy.name} was defeated!`)
+
+      return doAdvanceTurn(next)
     }
 
-    case 'RESET':
+    // ── ENEMY_TAKE_TURN ───────────────────────────────────────────────────────
+    case 'ENEMY_TAKE_TURN': {
+      if (state.phase !== 'active') return state
+
+      const { randoms } = action
+      let { player, enemy } = state
+      let next = state
+
+      // 1. Tick start-of-turn effects on enemy
+      const { combatant: ticked, logMessages, skippedTurn } = tickEffects(enemy)
+      enemy = ticked
+      next = { ...next, enemy }
+      for (const msg of logMessages) next = addLog(next, msg)
+
+      // 2. Death from DoT
+      if (enemy.hp <= 0) {
+        return endBattle(next, 'player', `${enemy.name} was overcome by their wounds!`)
+      }
+
+      // 3. Stunned — skip; turn still advances
+      if (skippedTurn) return doAdvanceTurn(next)
+
+      // 4. AI — filter usable abilities
+      const usable = enemy.abilities.filter(
+        (a) => !onCooldown(enemy, a.id) && enemy.mp >= a.mpCost
+      )
+      if (usable.length === 0) {
+        return doAdvanceTurn(addLog(next, `${enemy.name} has no usable abilities and waits.`))
+      }
+
+      // 5. AI priority selection
+      const enemyHpRatio  = enemy.hp  / enemy.maxHp
+      const playerHpRatio = player.hp / player.maxHp
+
+      const regenOption   = usable.find((a) => a.effect === 'regen')
+      const highDmgOption = [...usable]
+        .filter((a) => a.damage > 0)
+        .sort((a, b) => b.damage - a.damage)[0]
+      const randomOption  = usable[Math.floor(randoms.effectRoll * usable.length)] ?? usable[0]
+
+      const chosen =
+        enemyHpRatio  < 0.3 && regenOption   ? regenOption   :
+        playerHpRatio < 0.2 && highDmgOption  ? highDmgOption :
+        randomOption
+
+      // 6. Spend MP + set cooldown
+      enemy = {
+        ...enemy,
+        mp: enemy.mp - chosen.mpCost,
+        abilityCooldowns: chosen.cooldown > 0
+          ? { ...enemy.abilityCooldowns, [chosen.id]: chosen.cooldown }
+          : enemy.abilityCooldowns,
+      }
+
+      // 7. Resolve damage (if any)
+      if (chosen.damage > 0) {
+        const { updatedDefender, finalDamage, isCrit } = resolveDamage(enemy, player, chosen, randoms)
+        player = updatedDefender
+        const crit = isCrit ? ' Critical hit!' : ''
+        next = addLog({ ...next, player, enemy },
+          `${enemy.name} uses ${chosen.name} for ${finalDamage} damage!${crit}`)
+      } else {
+        next = addLog({ ...next, enemy }, `${enemy.name} uses ${chosen.name}.`)
+      }
+
+      // 8. Apply status effect
+      if (chosen.effect) {
+        const applied = applyAbilityEffect(chosen.effect, enemy, player, chosen)
+        enemy  = applied.caster
+        player = applied.defender
+        const target = chosen.damage > 0 ? player.name : enemy.name
+        next = addLog({ ...next, player, enemy }, `${target} is affected by ${chosen.effect}!`)
+      }
+
+      next = { ...next, player, enemy }
+
+      // 9. Defeat check
+      if (player.hp <= 0) return endBattle(next, 'enemy', `${player.name} was defeated!`)
+
+      return doAdvanceTurn(next)
+    }
+
+    // ── ADVANCE_TURN ──────────────────────────────────────────────────────────
+    case 'ADVANCE_TURN': {
+      if (state.phase !== 'active') return state
+      return doAdvanceTurn(state)
+    }
+
+    // ── RESET_BATTLE ──────────────────────────────────────────────────────────
+    case 'RESET_BATTLE':
       return initialBattleState
+
+    // ── LOAD_REPLAY_STATE ─────────────────────────────────────────────────────
+    case 'LOAD_REPLAY_STATE':
+      return action.state
 
     default:
       return state
