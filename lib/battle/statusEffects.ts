@@ -1,83 +1,61 @@
-import type { Combatant, StatusEffect, StatusEffectId, BattleLogEntry } from '@/types/battle'
+import type { Combatant, StatusEffect, StatusEffectType } from '@/types/battle'
 
-export function tickStatusEffects(
-  combatant: Combatant,
-  turnNumber: number
-): { updated: Combatant; logEntries: Omit<BattleLogEntry, 'id'>[] } {
-  const logEntries: Omit<BattleLogEntry, 'id'>[] = []
-  let { hp, mp } = combatant
+export function applyEffect(combatant: Combatant, effect: StatusEffect): Combatant {
+  // Replace any existing effect of the same type, then append the new one
+  const filtered = combatant.statusEffects.filter((e) => e.type !== effect.type)
+  return { ...combatant, statusEffects: [...filtered, effect] }
+}
+
+export function tickEffects(combatant: Combatant): {
+  combatant: Combatant
+  logMessages: string[]
+  skippedTurn: boolean
+} {
+  const logMessages: string[] = []
+  let skippedTurn = false
+  let hp = combatant.hp
   const remaining: StatusEffect[] = []
 
   for (const effect of combatant.statusEffects) {
-    switch (effect.id) {
-      case 'poison': {
-        const dmg = Math.round(combatant.maxHp * 0.05 * effect.magnitude)
-        hp = Math.max(0, hp - dmg)
-        logEntries.push({
-          turn: turnNumber,
-          actorId: combatant.id,
-          actorName: combatant.name,
-          message: `${combatant.name} takes ${dmg} poison damage.`,
-          type: 'effect',
-        })
+    switch (effect.type) {
+      case 'poison':
+      case 'burn':
+        hp = Math.max(0, hp - effect.value)
+        logMessages.push(`${combatant.name} takes ${effect.value} ${effect.type} damage.`)
         break
-      }
-      case 'burn': {
-        const dmg = Math.round(combatant.maxHp * 0.08 * effect.magnitude)
-        hp = Math.max(0, hp - dmg)
-        logEntries.push({
-          turn: turnNumber,
-          actorId: combatant.id,
-          actorName: combatant.name,
-          message: `${combatant.name} takes ${dmg} burn damage.`,
-          type: 'effect',
-        })
-        break
-      }
+
       case 'regen': {
-        const amt = Math.round(combatant.maxHp * 0.06 * effect.magnitude)
-        hp = Math.min(combatant.maxHp, hp + amt)
-        logEntries.push({
-          turn: turnNumber,
-          actorId: combatant.id,
-          actorName: combatant.name,
-          message: `${combatant.name} recovers ${amt} HP from regeneration.`,
-          type: 'effect',
-        })
+        const gained = Math.min(effect.value, combatant.maxHp - hp)
+        hp = hp + gained
+        logMessages.push(`${combatant.name} recovers ${gained} HP from regeneration.`)
         break
       }
+
+      case 'stun':
+        skippedTurn = true
+        logMessages.push(`${combatant.name} is stunned and skips their turn.`)
+        break
+
+      case 'shield':
+        // Passive — absorbed in calculateDamage; just tick the duration below
+        break
     }
 
-    const newDuration = effect.duration - 1
-    if (newDuration > 0) {
-      remaining.push({ ...effect, duration: newDuration })
+    const newRemaining = effect.turnsRemaining - 1
+    if (newRemaining > 0) {
+      remaining.push({ ...effect, turnsRemaining: newRemaining })
     } else {
-      logEntries.push({
-        turn: turnNumber,
-        actorId: combatant.id,
-        actorName: combatant.name,
-        message: `${combatant.name}'s ${effect.name} wore off.`,
-        type: 'system',
-      })
+      logMessages.push(`${combatant.name}'s ${effect.type} wore off.`)
     }
   }
 
   return {
-    updated: { ...combatant, hp, mp, statusEffects: remaining },
-    logEntries,
+    combatant: { ...combatant, hp, statusEffects: remaining },
+    logMessages,
+    skippedTurn,
   }
 }
 
-export function hasStatus(combatant: Combatant, effectId: StatusEffectId): boolean {
-  return combatant.statusEffects.some((e) => e.id === effectId)
-}
-
-export function applyStatus(combatant: Combatant, effect: StatusEffect): Combatant {
-  const idx = combatant.statusEffects.findIndex((e) => e.id === effect.id)
-  if (idx >= 0) {
-    const next = [...combatant.statusEffects]
-    next[idx] = { ...effect, duration: Math.max(next[idx].duration, effect.duration) }
-    return { ...combatant, statusEffects: next }
-  }
-  return { ...combatant, statusEffects: [...combatant.statusEffects, effect] }
+export function hasStatusEffect(combatant: Combatant, type: StatusEffectType): boolean {
+  return combatant.statusEffects.some((e) => e.type === type)
 }
