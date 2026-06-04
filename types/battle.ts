@@ -1,14 +1,22 @@
-export type StatusEffectId = 'poison' | 'burn' | 'stun' | 'silence' | 'regen' | 'shield'
+export type StatusEffectType = 'poison' | 'burn' | 'stun' | 'regen' | 'shield'
 
 export interface StatusEffect {
-  id: StatusEffectId
+  type: StatusEffectType
+  turnsRemaining: number
+  value: number
+}
+
+export interface Ability {
+  id: string
   name: string
-  duration: number
-  magnitude: number
+  description: string
+  damage: number
+  mpCost: number
+  cooldown: number
+  effect?: StatusEffectType
 }
 
 export interface Combatant {
-  id: string
   name: string
   hp: number
   maxHp: number
@@ -17,92 +25,76 @@ export interface Combatant {
   attack: number
   defense: number
   speed: number
-  isPlayer: boolean
+  abilities: Ability[]
   statusEffects: StatusEffect[]
-  abilities: string[]
+  abilityCooldowns: Record<string, number>
 }
 
-export type AbilityTargetType =
-  | 'single-enemy'
-  | 'all-enemies'
-  | 'single-ally'
-  | 'all-allies'
-  | 'self'
+export type BattlePhase = 'setup' | 'active' | 'ended'
 
-export interface AbilityEffect {
-  type: 'damage' | 'heal' | 'status' | 'mp-restore'
-  formula?: 'physical' | 'magic'
-  baseValue?: number
-  statusEffect?: StatusEffectId
-  statusDuration?: number
-  statusMagnitude?: number
-}
-
-export interface Ability {
-  id: string
-  name: string
-  description: string
-  mpCost: number
-  targetType: AbilityTargetType
-  effects: AbilityEffect[]
-  animationType: 'slash' | 'magic' | 'heal' | 'status'
-}
-
-export type BattlePhase =
-  | 'idle'
-  | 'player-turn'
-  | 'enemy-turn'
-  | 'animating'
-  | 'victory'
-  | 'defeat'
-  | 'replay'
+export type CombatantSide = 'player' | 'enemy'
 
 export interface BattleLogEntry {
   id: string
-  turn: number
-  actorId: string
-  actorName: string
   message: string
-  type: 'action' | 'effect' | 'system'
+  turnNumber: number
 }
 
-export interface ReplayAction {
-  turn: number
-  actorId: string
-  action: RecordableAction
-  timestamp: number
+export interface BattleState {
+  phase: BattlePhase
+  player: Combatant
+  enemy: Combatant
+  currentTurn: CombatantSide
+  turnQueue: CombatantSide[]
+  turnNumber: number
+  winner?: CombatantSide
+  log: BattleLogEntry[]
+  rngSeed: number
+}
+
+// Random values are passed in the action so the reducer stays pure and
+// deterministic — replaying the same action sequence reproduces the same outcome.
+export interface ActionRandoms {
+  damageRoll: number       // 0–1, scales damage variance
+  effectRoll: number       // 0–1, determines whether a status effect is applied
+  critRoll: number         // 0–1, determines critical hit
 }
 
 export interface BattleReplay {
   id: string
   date: string
-  initialState: { combatants: Combatant[] }
-  actions: ReplayAction[]
-  result: 'victory' | 'defeat'
-  duration: number
+  initialState: Pick<BattleState, 'player' | 'enemy' | 'rngSeed'>
+  actions: BattleAction[]
+  result: CombatantSide
+  durationMs: number
 }
-
-export type RecordableAction =
-  | { type: 'USE_ABILITY'; actorId: string; targetId: string; abilityId: string }
-  | { type: 'BASIC_ATTACK'; actorId: string; targetId: string }
 
 export type BattleAction =
-  | { type: 'START_BATTLE'; combatants: Combatant[] }
-  | { type: 'BASIC_ATTACK'; actorId: string; targetId: string }
-  | { type: 'USE_ABILITY'; actorId: string; targetId: string; abilityId: string }
-  | { type: 'NEXT_TURN' }
-  | { type: 'LOAD_REPLAY'; replay: BattleReplay }
-  | { type: 'REPLAY_STEP' }
-  | { type: 'RESET' }
-
-export interface BattleState {
-  phase: BattlePhase
-  combatants: Combatant[]
-  turnQueue: string[]
-  currentTurnIndex: number
-  turnNumber: number
-  log: BattleLogEntry[]
-  replay: BattleReplay | null
-  replayStep: number
-  startTime: number | null
-}
+  | {
+      type: 'START_BATTLE'
+      player: Combatant
+      enemy: Combatant
+      firstTurn: CombatantSide
+      rngSeed: number
+    }
+  | {
+      type: 'USE_ABILITY'
+      side: CombatantSide
+      abilityId: string
+      randoms: ActionRandoms
+    }
+  | {
+      type: 'ENEMY_TAKE_TURN'
+      abilityId: string
+      randoms: ActionRandoms
+    }
+  | {
+      type: 'ADVANCE_TURN'
+    }
+  | {
+      type: 'RESET_BATTLE'
+    }
+  | {
+      type: 'LOAD_REPLAY_STATE'
+      state: BattleState
+    }
