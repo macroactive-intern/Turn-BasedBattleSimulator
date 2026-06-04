@@ -1,40 +1,44 @@
 import { NextResponse } from 'next/server'
-import { readdir, readFile, writeFile, mkdir } from 'fs/promises'
+import { mkdir, readdir, writeFile } from 'fs/promises'
 import { join } from 'path'
 
 const REPLAYS_DIR = join(process.cwd(), 'data', 'replays')
 
 export async function GET() {
   try {
-    const files = await readdir(REPLAYS_DIR)
-    const replays = await Promise.all(
-      files
-        .filter((f) => f.endsWith('.json'))
-        .map(async (f) => {
-          const raw = await readFile(join(REPLAYS_DIR, f), 'utf-8')
-          return JSON.parse(raw)
-        })
-    )
-    return NextResponse.json(replays)
+    const entries = await readdir(REPLAYS_DIR)
+    const filenames = entries.filter((f) => f.endsWith('.json'))
+    return NextResponse.json({ filenames })
   } catch {
-    return NextResponse.json([])
+    return NextResponse.json({ filenames: [] })
   }
 }
 
 export async function POST(request: Request) {
+  let body: unknown
   try {
-    const replay = await request.json()
-    if (!replay?.id) {
-      return NextResponse.json({ error: 'Invalid replay data' }, { status: 400 })
-    }
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
+  if (
+    typeof body !== 'object' ||
+    body === null ||
+    !('id' in body) ||
+    !('createdAt' in body) ||
+    !('steps' in body) ||
+    !('finalState' in body)
+  ) {
+    return NextResponse.json({ error: 'Missing required replay fields' }, { status: 400 })
+  }
+
+  try {
     await mkdir(REPLAYS_DIR, { recursive: true })
-    await writeFile(
-      join(REPLAYS_DIR, `${replay.id}.json`),
-      JSON.stringify(replay, null, 2),
-      'utf-8'
-    )
-    return NextResponse.json({ success: true, id: replay.id })
-  } catch (err) {
+    const filename = `${Date.now()}.json`
+    await writeFile(join(REPLAYS_DIR, filename), JSON.stringify(body, null, 2), 'utf-8')
+    return NextResponse.json({ success: true, filename })
+  } catch {
     return NextResponse.json({ error: 'Failed to save replay' }, { status: 500 })
   }
 }
