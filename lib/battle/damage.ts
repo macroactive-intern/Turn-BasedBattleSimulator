@@ -1,30 +1,21 @@
-import type { Combatant } from '@/types/battle'
+import type { Ability, Combatant } from '@/types/battle'
 
-export function calculatePhysicalDamage(
+export function calculateDamage(
   attacker: Combatant,
   defender: Combatant,
-  multiplier = 1
+  ability: Ability
 ): number {
-  const base = Math.max(1, attacker.attack * multiplier - defender.defense * 0.5)
-  const variance = 0.9 + Math.random() * 0.2
-  return Math.round(base * variance)
-}
+  // Abilities with no damage value are pure healing/status — skip the floor
+  if (ability.damage === 0) return 0
 
-export function calculateMagicDamage(power: number, defender: Combatant): number {
-  const base = Math.max(1, power - defender.defense * 0.25)
-  const variance = 0.85 + Math.random() * 0.3
-  return Math.round(base * variance)
-}
+  const base = ability.damage + attacker.attack
+  let damage = base - defender.defense
 
-export function calculateHeal(power: number): number {
-  const variance = 0.9 + Math.random() * 0.2
-  return Math.round(power * variance)
-}
+  // Shield status effect absorbs a flat amount of the incoming damage
+  const shield = defender.statusEffects.find((e) => e.type === 'shield')
+  if (shield) {
+    damage -= shield.value
+  }
 
-export function clampHp(value: number, max: number): number {
-  return Math.max(0, Math.min(max, value))
-}
-
-export function isDefeated(combatant: Combatant): boolean {
-  return combatant.hp <= 0
+  return Math.max(1, damage)
 }
