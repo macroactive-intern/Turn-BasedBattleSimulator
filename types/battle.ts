@@ -60,15 +60,6 @@ export interface ActionRandoms {
   critRoll: number         // 0–1, determines critical hit
 }
 
-export interface BattleReplay {
-  id: string
-  date: string
-  initialState: Pick<BattleState, 'player' | 'enemy' | 'rngSeed'>
-  actions: BattleAction[]
-  result: CombatantSide
-  durationMs: number
-}
-
 export type BattleAction =
   | {
       type: 'START_BATTLE'

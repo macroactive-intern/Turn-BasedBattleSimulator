@@ -1,40 +1,40 @@
-import type { BattleReplay, Combatant, RecordableAction, ReplayAction } from '@/types/battle'
+import type { BattleAction, BattleState } from '@/types/battle'
 
-export class ReplayRecorder {
-  private actions: ReplayAction[] = []
-  private readonly startTime: number
-  private readonly initialCombatants: Combatant[]
+export interface ReplayStep {
+  action: BattleAction
+  stateBefore: BattleState
+  stateAfter: BattleState
+}
 
-  constructor(combatants: Combatant[]) {
-    this.startTime = Date.now()
-    this.initialCombatants = JSON.parse(JSON.stringify(combatants))
-  }
+export interface BattleReplay {
+  id: string
+  createdAt: string
+  steps: ReplayStep[]
+  finalState: BattleState
+}
 
-  record(turn: number, actorId: string, action: RecordableAction): void {
-    this.actions.push({
-      turn,
-      actorId,
-      action,
-      timestamp: Date.now() - this.startTime,
-    })
-  }
-
-  finalize(result: 'victory' | 'defeat'): BattleReplay {
-    return {
-      id: crypto.randomUUID(),
-      date: new Date().toISOString(),
-      initialState: { combatants: this.initialCombatants },
-      actions: this.actions,
-      result,
-      duration: Date.now() - this.startTime,
-    }
+// Returns a new BattleReplay with the step appended and finalState updated.
+// Pure: does not mutate the incoming replay or any state objects.
+export function recordReplayStep(
+  replay: BattleReplay,
+  action: BattleAction,
+  stateBefore: BattleState,
+  stateAfter: BattleState
+): BattleReplay {
+  const step: ReplayStep = { action, stateBefore, stateAfter }
+  return {
+    ...replay,
+    steps: [...replay.steps, step],
+    finalState: stateAfter,
   }
 }
 
-export function serializeReplay(replay: BattleReplay): string {
-  return JSON.stringify(replay, null, 2)
-}
-
-export function deserializeReplay(json: string): BattleReplay {
-  return JSON.parse(json) as BattleReplay
+// Factory — call once when a battle starts to get the initial replay object.
+export function createReplay(initialState: BattleState): BattleReplay {
+  return {
+    id: crypto.randomUUID(),
+    createdAt: new Date().toISOString(),
+    steps: [],
+    finalState: initialState,
+  }
 }
