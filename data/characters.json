@@ -1,0 +1,58 @@
+[
+  {
+    "id": "player-1",
+    "name": "Aria",
+    "hp": 150,
+    "maxHp": 150,
+    "mp": 80,
+    "maxMp": 80,
+    "attack": 35,
+    "defense": 20,
+    "speed": 45,
+    "isPlayer": true,
+    "statusEffects": [],
+    "abilities": ["slash", "fireball", "heal"]
+  },
+  {
+    "id": "player-2",
+    "name": "Brennan",
+    "hp": 120,
+    "maxHp": 120,
+    "mp": 100,
+    "maxMp": 100,
+    "attack": 22,
+    "defense": 15,
+    "speed": 38,
+    "isPlayer": true,
+    "statusEffects": [],
+    "abilities": ["heal", "regen", "blizzard"]
+  },
+  {
+    "id": "enemy-1",
+    "name": "Shadow Wolf",
+    "hp": 100,
+    "maxHp": 100,
+    "mp": 40,
+    "maxMp": 40,
+    "attack": 28,
+    "defense": 10,
+    "speed": 52,
+    "isPlayer": false,
+    "statusEffects": [],
+    "abilities": ["poison_dart"]
+  },
+  {
+    "id": "enemy-2",
+    "name": "Stone Golem",
+    "hp": 200,
+    "maxHp": 200,
+    "mp": 20,
+    "maxMp": 20,
+    "attack": 40,
+    "defense": 35,
+    "speed": 18,
+    "isPlayer": false,
+    "statusEffects": [],
+    "abilities": ["shield"]
+  }
+]
