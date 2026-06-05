@@ -213,11 +213,13 @@ export function battleReducer(state: BattleState, action: BattleAction): BattleS
 
       // 6. Resolve damage (if any)
       if (ability.damage > 0) {
+        const shield = enemy.statusEffects.find((e) => e.type === 'shield')
         const { updatedDefender, finalDamage, isCrit } = resolveDamage(player, enemy, ability, randoms)
         enemy = updatedDefender
         const crit = isCrit ? ' Critical hit!' : ''
         next = addLog({ ...next, player, enemy },
           `${player.name} uses ${ability.name} for ${finalDamage} damage!${crit}`)
+        if (shield) next = addLog(next, `${enemy.name}'s shield absorbs ${shield.value} damage.`)
       } else {
         next = addLog({ ...next, player }, `${player.name} uses ${ability.name}.`)
       }
@@ -284,6 +286,13 @@ export function battleReducer(state: BattleState, action: BattleAction): BattleS
         playerHpRatio < 0.2 && highDmgOption  ? highDmgOption :
         randomOption
 
+      // Log AI reasoning when a priority rule triggered
+      if (enemyHpRatio  < 0.3 && chosen === regenOption) {
+        next = addLog(next, `${enemy.name} is critically wounded and seeks recovery!`)
+      } else if (playerHpRatio < 0.2 && chosen === highDmgOption) {
+        next = addLog(next, `${enemy.name} senses victory and goes for the kill!`)
+      }
+
       // 6. Spend MP + set cooldown
       enemy = {
         ...enemy,
@@ -295,11 +304,13 @@ export function battleReducer(state: BattleState, action: BattleAction): BattleS
 
       // 7. Resolve damage (if any)
       if (chosen.damage > 0) {
+        const shield = player.statusEffects.find((e) => e.type === 'shield')
         const { updatedDefender, finalDamage, isCrit } = resolveDamage(enemy, player, chosen, randoms)
         player = updatedDefender
         const crit = isCrit ? ' Critical hit!' : ''
         next = addLog({ ...next, player, enemy },
           `${enemy.name} uses ${chosen.name} for ${finalDamage} damage!${crit}`)
+        if (shield) next = addLog(next, `${player.name}'s shield absorbs ${shield.value} damage.`)
       } else {
         next = addLog({ ...next, enemy }, `${enemy.name} uses ${chosen.name}.`)
       }
