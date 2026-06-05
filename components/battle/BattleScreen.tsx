@@ -35,12 +35,12 @@ export function BattleScreen() {
   const [showReplay, setShowReplay]         = useState(false)
   const [saveStatus, setSaveStatus]         = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
 
-  // Trigger enemy AI after a short pause so the player can read what happened
   useEffect(() => {
-    if (battleState.phase !== 'active' || battleState.currentTurn !== 'enemy') return
-    const t = setTimeout(enemyTakeTurn, 1000)
-    return () => clearTimeout(t)
-  }, [battleState.phase, battleState.currentTurn, battleState.turnNumber])
+    if (battleState.phase === 'active' && battleState.currentTurn === 'enemy') {
+      const t = setTimeout(enemyTakeTurn, 800)
+      return () => clearTimeout(t)
+    }
+  }, [battleState.phase, battleState.currentTurn])
 
   async function handleSaveReplay() {
     setSaveStatus('saving')
