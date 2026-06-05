@@ -66,13 +66,16 @@ body {
 .mp-fill { background: #818cf8; }
 .bar-value { font-size: 11px; color: var(--text-muted); min-width: 60px; text-align: right; }
 
-.status-effects { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 6px; }
-.status-badge { padding: 2px 6px; border-radius: 4px; font-size: 10px; font-weight: 700; background: var(--border); }
+.stats-row { display: flex; gap: 8px; margin-top: 6px; }
+.stat-chip { font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 3px; }
+
+.status-effects { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.status-badge { display: flex; align-items: center; gap: 3px; padding: 3px 8px; border-radius: 20px; font-size: 13px; font-weight: 700; }
+.status-turns { font-size: 10px; font-weight: 700; opacity: .85; }
 .status-poison { background: #4a1942; color: #d946ef; }
-.status-burn { background: #431407; color: #f97316; }
-.status-regen { background: #14290a; color: #86efac; }
-.status-stun { background: #422006; color: #fbbf24; }
-.status-silence { background: #1e1b4b; color: #a5b4fc; }
+.status-burn   { background: #431407; color: #f97316; }
+.status-regen  { background: #14290a; color: #86efac; }
+.status-stun   { background: #422006; color: #fbbf24; }
 .status-shield { background: #0c1a2e; color: #60a5fa; }
 
 .defeated-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.6); border-radius: 10px; font-size: 24px; font-weight: 900; color: var(--enemy); }
