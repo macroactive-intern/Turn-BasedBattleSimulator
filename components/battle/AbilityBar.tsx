@@ -1,6 +1,6 @@
 'use client'
 
-import { motion } from 'framer-motion'
+import { motion, AnimatePresence } from 'framer-motion'
 import { useBattleStore } from '@/store/battleStore'
 
 export function AbilityBar() {
@@ -9,41 +9,63 @@ export function AbilityBar() {
   const player      = useBattleStore((s) => s.battleState.player)
   const useAbility  = useBattleStore((s) => s.useAbility)
 
-  if (phase !== 'active' || currentTurn !== 'player') return null
+  const isPlayerTurn = phase === 'active' && currentTurn === 'player'
 
   return (
-    <motion.div
-      className="ability-bar"
-      initial={{ y: 40, opacity: 0 }}
-      animate={{ y: 0,  opacity: 1 }}
-    >
+    <div className="ability-bar">
       <div className="ability-bar-label">
-        {player.name}&apos;s turn — choose an ability
+        {isPlayerTurn
+          ? `${player.name}'s turn — choose an ability`
+          : phase === 'ended'
+          ? 'Battle over'
+          : 'Waiting for enemy…'}
       </div>
+
       <div className="ability-list">
         {player.abilities.map((ability) => {
-          const cooldown = player.abilityCooldowns[ability.id] ?? 0
-          const canUse   = cooldown === 0 && player.mp >= ability.mpCost
+          const cooldown       = player.abilityCooldowns[ability.id] ?? 0
+          const onCooldown     = cooldown > 0
+          const insufficientMp = player.mp < ability.mpCost
+          const disabled       = !isPlayerTurn || onCooldown || insufficientMp
+
           return (
             <button
               key={ability.id}
-              className={`ability-btn ${!canUse ? 'disabled' : ''}`}
-              onClick={() => canUse && useAbility(ability.id)}
-              disabled={!canUse}
-              title={ability.description}
+              className={`ability-btn ${disabled ? 'disabled' : ''}`}
+              onClick={() => !disabled && useAbility(ability.id)}
+              disabled={disabled}
             >
+              {/* Cooldown overlay */}
+              <AnimatePresence>
+                {onCooldown && (
+                  <motion.div
+                    className="ability-cd-overlay"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.15 }}
+                  >
+                    <span className="ability-cd-count">{cooldown}</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+
               <span className="ability-name">{ability.name}</span>
-              <span className="ability-cost">
-                {cooldown > 0
-                  ? `CD ${cooldown}`
-                  : ability.mpCost > 0
-                  ? `${ability.mpCost} MP`
-                  : '—'}
-              </span>
+
+              <div className="ability-meta">
+                {ability.damage > 0 && (
+                  <span className="ability-damage">⚔ {ability.damage}</span>
+                )}
+                <span className={`ability-mp ${insufficientMp ? 'ability-mp-low' : ''}`}>
+                  {ability.mpCost > 0 ? `${ability.mpCost} MP` : 'Free'}
+                </span>
+              </div>
+
+              <span className="ability-desc">{ability.description}</span>
             </button>
           )
         })}
       </div>
-    </motion.div>
+    </div>
   )
 }
