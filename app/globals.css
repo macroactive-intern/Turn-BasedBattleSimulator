@@ -38,14 +38,20 @@ body {
 }
 
 /* --- Turn Queue --- */
-.turn-queue { grid-area: queue; display: flex; align-items: center; gap: 10px; padding: 8px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; }
+.turn-queue { grid-area: queue; display: flex; align-items: center; gap: 12px; padding: 8px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
 .turn-number { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
-.turn-queue-list { display: flex; gap: 6px; }
-.turn-token { display: flex; align-items: center; gap: 4px; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1px solid var(--border); background: var(--surface); transition: transform .15s; }
-.turn-token.current { border-color: var(--yellow); color: var(--yellow); }
-.turn-token.player { border-color: var(--player); }
-.turn-token.enemy { border-color: var(--enemy); }
-.turn-token-name { font-size: 11px; }
+.turn-queue-divider { width: 1px; height: 18px; background: var(--border); flex-shrink: 0; }
+.turn-queue-label { font-size: 12px; color: var(--text-muted); white-space: nowrap; }
+.turn-queue-list { list-style: none; display: flex; gap: 6px; }
+.turn-token { display: flex; align-items: center; gap: 5px; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; border: 1px solid var(--border); background: var(--bg); }
+.turn-token.current { border-color: var(--yellow); background: rgba(245,158,11,.1); }
+.turn-token.current .turn-token-name { color: var(--yellow); }
+.turn-token.player:not(.current) { border-color: var(--player); }
+.turn-token.player:not(.current) .turn-token-name { color: var(--player); }
+.turn-token.enemy:not(.current)  { border-color: var(--enemy); }
+.turn-token.enemy:not(.current)  .turn-token-name { color: var(--enemy); }
+.turn-token-index { font-size: 10px; color: var(--text-muted); }
+.turn-token-name  { font-size: 12px; }
 
 /* --- Combatants --- */
 .combatants-grid { grid-area: field; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
