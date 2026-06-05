@@ -2,39 +2,39 @@
 
 import { motion, AnimatePresence } from 'framer-motion'
 import { useBattleStore } from '@/store/battleStore'
-import { isDefeated } from '@/lib/battle/damage'
+import type { CombatantSide } from '@/types/battle'
 
 export function TurnQueue() {
-  const turnQueue = useBattleStore((s) => s.state.turnQueue)
-  const currentTurnIndex = useBattleStore((s) => s.state.currentTurnIndex)
-  const combatants = useBattleStore((s) => s.state.combatants)
-  const turnNumber = useBattleStore((s) => s.state.turnNumber)
+  const currentTurn = useBattleStore((s) => s.battleState.currentTurn)
+  const turnQueue   = useBattleStore((s) => s.battleState.turnQueue)
+  const turnNumber  = useBattleStore((s) => s.battleState.turnNumber)
+  const player      = useBattleStore((s) => s.battleState.player)
+  const enemy       = useBattleStore((s) => s.battleState.enemy)
 
-  const orderedIds = [...turnQueue.slice(currentTurnIndex), ...turnQueue.slice(0, currentTurnIndex)]
+  const nameOf = (side: CombatantSide) =>
+    side === 'player' ? player.name : enemy.name
+
+  const upcoming: CombatantSide[] = [currentTurn, ...turnQueue]
 
   return (
     <div className="turn-queue">
       <span className="turn-number">Round {turnNumber}</span>
       <div className="turn-queue-list">
         <AnimatePresence mode="popLayout">
-          {orderedIds.map((id, i) => {
-            const c = combatants.find((x) => x.id === id)
-            if (!c || isDefeated(c)) return null
-            return (
-              <motion.div
-                key={id}
-                layout
-                className={`turn-token ${i === 0 ? 'current' : ''} ${c.isPlayer ? 'player' : 'enemy'}`}
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: 20 }}
-                transition={{ duration: 0.25 }}
-              >
-                {c.name[0]}
-                <span className="turn-token-name">{c.name}</span>
-              </motion.div>
-            )
-          })}
+          {upcoming.map((side, i) => (
+            <motion.div
+              key={`${side}-${i}`}
+              layout
+              className={`turn-token ${i === 0 ? 'current' : ''} ${side}`}
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1,  x: 0   }}
+              exit={{ opacity: 0,    x: 20   }}
+              transition={{ duration: 0.2 }}
+            >
+              {nameOf(side)[0]}
+              <span className="turn-token-name">{nameOf(side)}</span>
+            </motion.div>
+          ))}
         </AnimatePresence>
       </div>
     </div>

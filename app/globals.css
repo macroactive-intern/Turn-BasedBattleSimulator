@@ -129,3 +129,27 @@ body {
 /* --- Nav --- */
 nav { display: flex; gap: 16px; padding: 16px; border-bottom: 1px solid var(--border); }
 nav a { color: var(--accent); text-decoration: none; font-weight: 600; }
+
+/* --- Setup screen --- */
+.setup-screen { max-width: 900px; margin: 40px auto; padding: 24px; display: flex; flex-direction: column; align-items: center; gap: 32px; }
+.setup-title { font-size: 32px; font-weight: 900; }
+.setup-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; width: 100%; }
+.setup-section { display: flex; flex-direction: column; gap: 12px; }
+.setup-section-title { font-size: 14px; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); }
+.character-grid { display: flex; flex-direction: column; gap: 8px; }
+.character-card { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; padding: 12px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; cursor: pointer; color: var(--text); text-align: left; transition: border-color .15s; }
+.character-card:hover { border-color: var(--player); }
+.character-card.selected { border-color: var(--yellow); background: rgba(245,158,11,.08); }
+.character-card.enemy-card:hover { border-color: var(--enemy); }
+.character-card.enemy-card.selected { border-color: var(--enemy); background: rgba(239,68,68,.08); }
+.card-name { font-size: 15px; font-weight: 700; }
+.card-hp { font-size: 12px; color: var(--green); }
+.card-stats { font-size: 11px; color: var(--text-muted); }
+.start-btn { padding: 14px 48px; font-size: 16px; border-radius: 10px; }
+
+/* --- Battle end overlay --- */
+.battle-end-overlay { position: fixed; inset: 0; background: rgba(0,0,0,.75); display: flex; align-items: center; justify-content: center; z-index: 100; }
+.battle-end-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 40px; display: flex; flex-direction: column; align-items: center; gap: 16px; min-width: 320px; }
+.victory-text { font-size: 42px; font-weight: 900; color: var(--yellow); }
+.defeat-text  { font-size: 42px; font-weight: 900; color: var(--enemy); }
+.winner-label { color: var(--text-muted); font-size: 14px; }

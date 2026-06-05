@@ -3,16 +3,9 @@
 import { useEffect, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useBattleStore } from '@/store/battleStore'
-import type { BattleLogEntry } from '@/types/battle'
-
-function entryColor(type: BattleLogEntry['type']): string {
-  if (type === 'effect') return '#f59e0b'
-  if (type === 'system') return '#94a3b8'
-  return '#e2e8f0'
-}
 
 export function BattleLog() {
-  const log = useBattleStore((s) => s.state.log)
+  const log       = useBattleStore((s) => s.battleState.log)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -28,13 +21,12 @@ export function BattleLog() {
             <motion.div
               key={entry.id}
               className="log-entry"
-              style={{ color: entryColor(entry.type) }}
               initial={{ opacity: 0, x: -10 }}
-              animate={{ opacity: 1, x: 0 }}
+              animate={{ opacity: 1, x: 0   }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
+              transition={{ duration: 0.15 }}
             >
-              <span className="log-turn">T{entry.turn}</span>
+              <span className="log-turn">T{entry.turnNumber}</span>
               {entry.message}
             </motion.div>
           ))}

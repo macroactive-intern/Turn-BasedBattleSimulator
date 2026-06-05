@@ -2,59 +2,33 @@
 
 import { motion } from 'framer-motion'
 import { useBattleStore } from '@/store/battleStore'
-import { getAbility } from '@/lib/battle/abilities'
-import { isDefeated } from '@/lib/battle/damage'
+import type { CombatantSide } from '@/types/battle'
 
 interface CombatantPanelProps {
-  combatantId: string
+  side: CombatantSide
 }
 
-export function CombatantPanel({ combatantId }: CombatantPanelProps) {
-  const combatant = useBattleStore((s) => s.state.combatants.find((c) => c.id === combatantId))
-  const phase = useBattleStore((s) => s.state.phase)
-  const turnQueue = useBattleStore((s) => s.state.turnQueue)
-  const currentTurnIndex = useBattleStore((s) => s.state.currentTurnIndex)
-  const selectedAbilityId = useBattleStore((s) => s.selectedAbilityId)
-  const selectAbility = useBattleStore((s) => s.selectAbility)
-  const dispatch = useBattleStore((s) => s.dispatch)
-  const actorId = useBattleStore((s) => s.state.turnQueue[s.state.currentTurnIndex])
+export function CombatantPanel({ side }: CombatantPanelProps) {
+  const combatant    = useBattleStore((s) => s.battleState[side])
+  const currentTurn  = useBattleStore((s) => s.battleState.currentTurn)
+  const phase        = useBattleStore((s) => s.battleState.phase)
 
-  if (!combatant) return null
-
-  const isActive = turnQueue[currentTurnIndex] === combatantId
-  const defeated = isDefeated(combatant)
-
-  const isTargetable = (() => {
-    if (phase !== 'player-turn' || !selectedAbilityId) return false
-    if (selectedAbilityId === '__attack__') return !combatant.isPlayer && !defeated
-    const ability = getAbility(selectedAbilityId)
-    if (!ability) return false
-    if (ability.targetType === 'single-enemy') return !combatant.isPlayer && !defeated
-    if (ability.targetType === 'single-ally') return combatant.isPlayer && !defeated
-    if (ability.targetType === 'self') return combatant.id === actorId
-    return false
-  })()
-
-  function handleClick() {
-    if (!isTargetable || !combatant) return
-    if (selectedAbilityId === '__attack__') {
-      dispatch({ type: 'BASIC_ATTACK', actorId, targetId: combatant.id })
-    } else if (selectedAbilityId) {
-      dispatch({ type: 'USE_ABILITY', actorId, targetId: combatant.id, abilityId: selectedAbilityId })
-    }
-    selectAbility(null)
-  }
+  const isActive  = currentTurn === side && phase === 'active'
+  const isDefeated = combatant.hp <= 0
 
   const hpPct = Math.max(0, (combatant.hp / combatant.maxHp) * 100)
   const mpPct = Math.max(0, (combatant.mp / combatant.maxMp) * 100)
-  const hpColor = hpPct > 50 ? '#22c55e' : hpPct > 25 ? '#f59e0b' : '#ef4444'
+  const hpColor =
+    hpPct > 50 ? '#22c55e' : hpPct > 25 ? '#f59e0b' : '#ef4444'
 
   return (
     <motion.div
-      className={`combatant-panel ${isActive ? 'active' : ''} ${defeated ? 'defeated' : ''} ${isTargetable ? 'targetable' : ''}`}
-      onClick={handleClick}
-      animate={isActive ? { boxShadow: '0 0 0 2px #facc15' } : { boxShadow: '0 0 0 0px transparent' }}
-      whileHover={isTargetable ? { scale: 1.03 } : {}}
+      className={`combatant-panel ${isActive ? 'active' : ''} ${isDefeated ? 'defeated' : ''} ${side}`}
+      animate={
+        isActive
+          ? { boxShadow: '0 0 0 2px #facc15' }
+          : { boxShadow: '0 0 0 0px transparent' }
+      }
       transition={{ duration: 0.2 }}
     >
       <div className="combatant-header">
@@ -72,7 +46,9 @@ export function CombatantPanel({ combatantId }: CombatantPanelProps) {
             transition={{ duration: 0.4 }}
           />
         </div>
-        <span className="bar-value">{combatant.hp}/{combatant.maxHp}</span>
+        <span className="bar-value">
+          {combatant.hp}/{combatant.maxHp}
+        </span>
       </div>
 
       <div className="bar-row">
@@ -84,20 +60,26 @@ export function CombatantPanel({ combatantId }: CombatantPanelProps) {
             transition={{ duration: 0.4 }}
           />
         </div>
-        <span className="bar-value">{combatant.mp}/{combatant.maxMp}</span>
+        <span className="bar-value">
+          {combatant.mp}/{combatant.maxMp}
+        </span>
       </div>
 
       {combatant.statusEffects.length > 0 && (
         <div className="status-effects">
           {combatant.statusEffects.map((e) => (
-            <span key={e.id} className={`status-badge status-${e.id}`} title={`${e.name} (${e.duration}t)`}>
-              {e.name[0].toUpperCase()}{e.duration}
+            <span
+              key={e.type}
+              className={`status-badge status-${e.type}`}
+              title={`${e.type} — ${e.turnsRemaining} turn${e.turnsRemaining !== 1 ? 's' : ''} left`}
+            >
+              {e.type[0].toUpperCase()}{e.turnsRemaining}
             </span>
           ))}
         </div>
       )}
 
-      {defeated && <div className="defeated-overlay">KO</div>}
+      {isDefeated && <div className="defeated-overlay">KO</div>}
     </motion.div>
   )
 }
