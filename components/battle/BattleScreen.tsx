@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { useBattleStore } from '@/store/battleStore'
 import {
@@ -10,6 +10,7 @@ import {
 } from '@/lib/battle/abilities'
 import type { Combatant } from '@/types/battle'
 import rawCharacters from '@/data/characters.json'
+import { loadPokemonEnemy, PokemonLoadError } from '@/lib/battle/pokemonLoader'
 import { CombatantPanel } from './CombatantPanel'
 import { AbilityBar } from './AbilityBar'
 import { TurnQueue } from './TurnQueue'
@@ -34,6 +35,10 @@ export function BattleScreen() {
   const [selectedEnemy, setSelectedEnemy]   = useState<Combatant>(ENEMIES[0])
   const [showReplay, setShowReplay]         = useState(false)
   const [saveStatus, setSaveStatus]         = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [pokemonInput, setPokemonInput]     = useState('')
+  const [pokemonStatus, setPokemonStatus]   = useState<'idle' | 'loading' | 'error'>('idle')
+  const [pokemonError, setPokemonError]     = useState('')
+  const pokemonInputRef                     = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     if (battleState.phase === 'active' && battleState.currentTurn === 'enemy') {
@@ -49,6 +54,21 @@ export function BattleScreen() {
       setSaveStatus('saved')
     } catch {
       setSaveStatus('error')
+    }
+  }
+
+  async function handleLoadPokemon() {
+    const name = pokemonInput.trim().toLowerCase()
+    if (!name) return
+    setPokemonStatus('loading')
+    setPokemonError('')
+    try {
+      const combatant = await loadPokemonEnemy(name)
+      setSelectedEnemy(combatant)
+      setPokemonStatus('idle')
+    } catch (err) {
+      setPokemonError(err instanceof PokemonLoadError ? err.message : 'Failed to load Pokémon')
+      setPokemonStatus('error')
     }
   }
 
@@ -104,6 +124,39 @@ export function BattleScreen() {
                   </span>
                 </motion.button>
               ))}
+            </div>
+
+            {/* Pokémon loader */}
+            <div className="pokemon-loader">
+              <span className="setup-section-title" style={{ fontSize: 12 }}>
+                Or load from PokéAPI
+              </span>
+              <div className="pokemon-input-row">
+                <input
+                  ref={pokemonInputRef}
+                  className="pokemon-input"
+                  placeholder="e.g. charizard or 6"
+                  value={pokemonInput}
+                  onChange={(e) => setPokemonInput(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && handleLoadPokemon()}
+                  disabled={pokemonStatus === 'loading'}
+                />
+                <button
+                  className="btn btn-secondary"
+                  onClick={handleLoadPokemon}
+                  disabled={pokemonStatus === 'loading' || !pokemonInput.trim()}
+                >
+                  {pokemonStatus === 'loading' ? 'Loading…' : 'Load'}
+                </button>
+              </div>
+              {pokemonStatus === 'error' && (
+                <span className="pokemon-error">{pokemonError}</span>
+              )}
+              {selectedEnemy.name && pokemonStatus !== 'loading' && (
+                <span className="pokemon-selected">
+                  Selected: {selectedEnemy.name}
+                </span>
+              )}
             </div>
           </section>
         </div>
